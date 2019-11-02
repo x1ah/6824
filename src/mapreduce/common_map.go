@@ -1,7 +1,11 @@
 package mapreduce
 
 import (
+	"encoding/json"
 	"hash/fnv"
+	"io/ioutil"
+	"log"
+	"os"
 )
 
 func doMap(
@@ -53,6 +57,29 @@ func doMap(
 	//
 	// Your code here (Part I).
 	//
+
+	contentBytes, err := ioutil.ReadFile(inFile)
+	if err != nil {
+		log.Fatalf("read infile error: %s, %v\n", inFile, err)
+	}
+	kvs := mapF(inFile, string(contentBytes))
+
+	// 每个 key 做 partition，相同的 key 分到相同 partition
+	fileKVMap := make(map[string][]KeyValue)
+	for _, kv := range kvs {
+		reduceTask := ihash(kv.Key) % nReduce
+		reduceName := reduceName(jobName, mapTask, reduceTask)
+		fileKVMap[reduceName] = append(fileKVMap[reduceName], kv)
+	}
+
+	for filename, itkvs := range fileKVMap {
+		b, _ := json.Marshal(itkvs)
+		err = ioutil.WriteFile(filename, b, os.ModePerm)
+		if err != nil {
+			log.Fatalf("write reduce file error: %v\n", err)
+		}
+	}
+
 }
 
 func ihash(s string) int {

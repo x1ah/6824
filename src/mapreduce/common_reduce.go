@@ -1,5 +1,12 @@
 package mapreduce
 
+import (
+	"encoding/json"
+	"io/ioutil"
+	"log"
+	"os"
+)
+
 func doReduce(
 	jobName string, // the name of the whole MapReduce job
 	reduceTask int, // which reduce task this is
@@ -44,4 +51,49 @@ func doReduce(
 	//
 	// Your code here (Part I).
 	//
+
+	var reduceKVs []KeyValue
+
+	// 从每个 map task 生成的文件里读
+	for mapTask := 0; mapTask < nMap; mapTask++ {
+		imterFilename := reduceName(jobName, mapTask, reduceTask)
+		log.Printf("reduce interm file %s\n", imterFilename)
+
+		if _, err := os.Stat(imterFilename); os.IsNotExist(err) {
+			continue
+		}
+		var _reduceKVs []KeyValue
+		f, err := ioutil.ReadFile(imterFilename)
+		if err != nil {
+			log.Fatalf("doReduce: fatail when open imter file: %s, %v\n", imterFilename, err)
+		}
+		err = json.Unmarshal(f, &_reduceKVs)
+		if err != nil {
+			log.Fatalf("doReduce: fatail when unmarshal imter file: %s, %v\n", imterFilename, err)
+		}
+
+		reduceKVs = append(reduceKVs, _reduceKVs...)
+	}
+
+	// 把相同 key 合并
+	sortedKVs := make(map[string][]string)
+
+	for _, kv := range reduceKVs {
+		if _, ok := sortedKVs[kv.Key]; !ok {
+			sortedKVs[kv.Key] = []string{kv.Value}
+		} else {
+			sortedKVs[kv.Key] = append(sortedKVs[kv.Key], kv.Value)
+		}
+	}
+
+	fo, err := os.OpenFile(outFile, os.O_CREATE|os.O_WRONLY, os.ModePerm)
+	defer fo.Close()
+	if err != nil {
+		log.Fatalf("doReduce: fatail when open res %s, %v\n", outFile, err)
+	}
+	enc := json.NewEncoder(fo)
+
+	for key, values := range sortedKVs {
+		enc.Encode(KeyValue{Key: key, Value:reduceF(key, values)})
+	}
 }
