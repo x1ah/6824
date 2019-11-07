@@ -57,7 +57,6 @@ func doReduce(
 	// 从每个 map task 生成的文件里读
 	for mapTask := 0; mapTask < nMap; mapTask++ {
 		imterFilename := reduceName(jobName, mapTask, reduceTask)
-		log.Printf("reduce interm file %s\n", imterFilename)
 
 		if _, err := os.Stat(imterFilename); os.IsNotExist(err) {
 			continue
@@ -94,6 +93,6 @@ func doReduce(
 	enc := json.NewEncoder(fo)
 
 	for key, values := range sortedKVs {
-		enc.Encode(KeyValue{Key: key, Value:reduceF(key, values)})
+		enc.Encode(KeyValue{Key: key, Value: reduceF(key, values)})
 	}
 }

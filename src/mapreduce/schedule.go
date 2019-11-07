@@ -34,50 +34,58 @@ func schedule(jobName string, mapFiles []string, nReduce int, phase jobPhase, re
 	// Your code here (Part III, Part IV).
 	//
 
-	var workers []string
-	quit := make(chan string)
+	var wg sync.WaitGroup
+	wg.Add(ntasks)
+	taskChan := make(chan int, ntasks)
+	quit := make(chan int)
+
+	// All tasks
+	for i := 0; i < ntasks; i++ {
+		taskChan <- i
+	}
 
 	go func() {
-		select {
-		case w := <-registerChan:
-			workers = append(workers, w)
-		case <-quit:
-			return
+		for {
+			select {
+			case taskNumber := <-taskChan:
+				args := &DoTaskArgs{
+					JobName:       jobName,
+					Phase:         phase,
+					TaskNumber:    taskNumber,
+					NumOtherPhase: n_other,
+				}
+				if taskNumber >= len(mapFiles) {
+					args.File = ""
+				} else {
+					args.File = mapFiles[taskNumber]
+				}
+				go func() {
+					// 拿一个 worker
+					workerAddr := <-registerChan
+					ok := call(workerAddr, "Worker.DoTask", args, nil)
+
+					// 跑完回收 worker
+					go func() {
+						registerChan <- workerAddr
+					}()
+
+					if !ok {
+						// 失败的重新放进 chan 里
+						taskChan <- taskNumber
+					} else {
+						wg.Done()
+						fmt.Printf("task %d completed\n", taskNumber)
+					}
+				}()
+			case <-quit:
+				return
+			}
 		}
 	}()
 
-	var wg sync.WaitGroup
-	wg.Add(ntasks)
-	for i := 0; i < ntasks; i++ {
-		args := &DoTaskArgs{
-			JobName:       jobName,
-			Phase:         phase,
-			TaskNumber:    i,
-			NumOtherPhase: n_other,
-		}
-		if i >= len(mapFiles) {
-			args.File = ""
-		} else {
-			args.File = mapFiles[i]
-		}
-		go func() {
-			defer wg.Done()
-
-			// 拿一个 worker
-			workerAddr := <-registerChan
-			fmt.Printf("get worker: %s\n", workerAddr)
-			ok := call(workerAddr, "Worker.DoTask", args, nil)
-
-			// 跑完回收 worker
-			go func() {
-				registerChan <- workerAddr
-			}()
-			if !ok {
-				fmt.Printf("Worker.DoTask faild: %s\n", workerAddr)
-			}
-		}()
-	}
+	// All task completed.
 	wg.Wait()
+	quit <- 1
 
 	fmt.Printf("Schedule: %v done\n", phase)
 }
